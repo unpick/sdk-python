@@ -1,5 +1,5 @@
 from client.onem2m.OneM2MResource import OneM2MResource, OneM2MResourceContent
-
+from client.onem2m.OneM2MPrimitive import OneM2MPrimitive
 
 # {
 #     "sub": {
@@ -17,6 +17,8 @@ class Subscription(OneM2MResource):
     M2M_ATTR_EVENT_NOTIFICATION_CRITERIA = 'm2m:enc'
     M2M_ATTR_NOTIFICATION_URI            = 'nu'
     M2M_ATTR_NCT                         = 'nct'     # @note can not find in docs.
+
+    CONTENT_TYPE = OneM2MPrimitive.M2M_RESOURCE_TYPES.Subscription.value
 
     def __init__(self, subscription: OneM2MResourceContent):
         """

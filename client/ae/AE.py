@@ -5,6 +5,7 @@
 import json
 
 from client.onem2m.OneM2MResource import OneM2MResource, OneM2MResourceContent
+from client.onem2m.OneM2MPrimitive import OneM2MPrimitive
 from client.ae.AsyncResponseListener import AsyncResponseListenerFactory
 
 from typing import List, Mapping, Any, Union
@@ -19,6 +20,8 @@ class AE(OneM2MResource):
     M2M_ATTR_APP_NAME        = 'apn'
     M2M_ATTR_POINT_OF_ACCESS = 'poa'
 
+    CONTENT_TYPE = OneM2MPrimitive.M2M_RESOURCE_TYPES.AE.value
+
     # Attributes that must be defined in each instance.
     REQUIRED_ATTRIBUTES = [
         M2M_ATTR_APP_ID,
@@ -31,7 +34,7 @@ class AE(OneM2MResource):
     aei: str
 
     def __init__(self, args: Union[str, Mapping[str, Any]]):
-        """Constructor
+        """Constructor. Call this after registration, passing in the CSE's registration response.
 
         Args:
             args (str|dict): JSON string representation of an ae or dict representation of an ae.

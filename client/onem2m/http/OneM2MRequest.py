@@ -97,6 +97,7 @@ class OneM2MRequest(OneM2MPrimitive):
     QUERY_STRING_PARAMS: List[str] = [
         M2M_PARAM_RESPONSE_TYPE,
         M2M_PARAM_RESULT_PERSISTENCE,
+        M2M_PARAM_RESULT_CONTENT,
         M2M_PARAM_DELIVERY_AGGREGATION,
         M2M_PARAM_CREATED_BEFORE,
         M2M_PARAM_CREATED_AFTER,
@@ -243,7 +244,7 @@ class OneM2MRequest(OneM2MPrimitive):
         # No query string, strip the '? and return the just 'to'.  Otherwise, return the modified to with query string.
         return to[:-1] if to[-1] == '?' else to
 
-    def _resolve_params(self, to: Optional[str], params: Optional[MutableMapping[str, Any]] = None):
+    def _resolve_params(self, to: Optional[str], params: Optional[MutableMapping[str, Any]]=None):
         """Resolves 'to' and 'params' arguments according to a hierachy:
            1) 'to' and 'param' arguments that are explicitly set here
                override the 'to' and 'param' members set in the constuctor, but
@@ -300,6 +301,23 @@ class OneM2MRequest(OneM2MPrimitive):
         """
         return sum(self.REQUIRED_HTTP_PARAMS.values(), self.QUERY_STRING_PARAMS)
 
+    def _get_content_type(self, params: Parameters=None, content=None):
+        """Constructs a content type based on the params or, if not set there, the content.
+
+           Args:
+            params: Dict of OneM2MParams
+            content: A OneM2MResource
+
+        Returns: The content type string.
+        """
+
+        if OneM2MPrimitive.M2M_PARAM_RESOURCE_TYPE in params.keys():
+            return OneM2MPrimitive.CONTENT_TYPE_JSON + '; ty=' + str(params[OneM2MPrimitive.M2M_PARAM_RESOURCE_TYPE])
+        elif content is not None and hasattr(content, 'CONTENT_TYPE'):
+            return OneM2MPrimitive.CONTENT_TYPE_JSON + '; ty=' + str(content.CONTENT_TYPE)
+        else:
+            return OneM2MPrimitive.CONTENT_TYPE_JSON
+
     def set_param(self, param, value=None):
         """Sets a request parameter.
 
@@ -328,7 +346,7 @@ class OneM2MRequest(OneM2MPrimitive):
                 # @todo do some logging
                 pass
 
-    def create(self, to: str, params: Parameters = None, content = None):
+    def create(self, to: str, params: Parameters=None, content=None):
         """ Synchronous OneM2M Create request.
 
         Args:
@@ -356,7 +374,7 @@ class OneM2MRequest(OneM2MPrimitive):
 
         # Set the content type AND append the oneM2M resource type for the request.
         # @todo move this to member with setter function.
-        headers[HttpHeader.CONTENT_TYPE] = OneM2MPrimitive.CONTENT_TYPE_JSON + ' ty='+str(params['ty'])
+        headers[HttpHeader.CONTENT_TYPE] = self._get_content_type(params, content)
 
         # Extract entity members as dict.
         if isinstance(content, OneM2MResource):
@@ -405,7 +423,7 @@ class OneM2MRequest(OneM2MPrimitive):
 
         # Set the content type for the request.
         # @todo move this to member with setter function.
-        headers[HttpHeader.CONTENT_TYPE] = OneM2MPrimitive.CONTENT_TYPE_JSON + ' ty='+str(params['ty'])
+        headers[HttpHeader.CONTENT_TYPE] = OneM2MPrimitive.CONTENT_TYPE_JSON + '; ty=' + str(params['ty'])
 
         # Extract entity members as dict.
         if isinstance(content, OneM2MResource):
@@ -450,7 +468,7 @@ class OneM2MRequest(OneM2MPrimitive):
 
         # Set the content type for the request.
         # @todo move this to member with setter function.
-        headers[HttpHeader.CONTENT_TYPE] = OneM2MPrimitive.CONTENT_TYPE_JSON + ' ty='+str(params['ty'])
+        headers[HttpHeader.CONTENT_TYPE] = OneM2MPrimitive.CONTENT_TYPE_JSON + '; ty=' + str(params['ty'])
 
         # HTTP GET implied by OneM2M retrieve Operation (function signature).
         http_response = requests.get(to, headers=headers, verify=False)
@@ -481,7 +499,7 @@ class OneM2MRequest(OneM2MPrimitive):
 
         # Set the content type for the request.
         # @todo move this to member with setter function.
-        headers[HttpHeader.CONTENT_TYPE] = OneM2MPrimitive.CONTENT_TYPE_JSON + ' ty='+str(params['ty'])
+        headers[HttpHeader.CONTENT_TYPE] = OneM2MPrimitive.CONTENT_TYPE_JSON + '; ty=' + str(params['ty'])
 
         # HTTP POST implied by OneM2M Create Operation (function signature).
         http_response = requests.delete(to, headers=headers)

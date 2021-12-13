@@ -45,8 +45,14 @@ def main():
 
         print('AE registration successful:')
 
+        # Discover containers.
+        print('Discovering containers:')
+        containers = pn_cse.discover_containers()
+        containers.dump('Discover Containers')
+        print('Retrieved {} containers\n'.format(len(containers.pc['m2m:uril'])))
+
         # Pick a container resource to work with.
-        container_uri = '/PN_CSE/policynet.m2m/cntPolicy9550'
+        container_uri = containers.pc['m2m:uril'][0]
 
         # Create the content instance.
         print('Creating content instance of resource {}'.format(container_uri))

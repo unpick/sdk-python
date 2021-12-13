@@ -111,7 +111,7 @@ class AsyncResponseListenerFactory:
                     return await self.rqi_cb_map[request_id](req, res)  # TODO: check argument types
                 else:
                     # No handler has been registed for this request id.
-                    res.set_status(4004, 'No response handler has been set for this rqi.')
+                    res.set_status(4004, 'No response handler has been set for rqi {}'.format(request_id))
             except Exception as err:
                 print(err)
                 res.set_status(500, str(err))

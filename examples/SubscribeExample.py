@@ -50,14 +50,14 @@ def main():
         print('Discovering containers:')
         containers = pn_cse.discover_containers()
         containers.dump('Discover Containers')
-        print('Retrieved {} containers\n'.format(len(containers)))
+        print('Retrieved {} containers\n'.format(len(containers.pc['m2m:uril'])))
 
         # Pick a container resource to work with.
-        containerUri = containers[0]
+        containerUri = containers.pc['m2m:uril'][0]
 
         # Create a subscription to the container.
         print('Subscribing to container: {}'.format(containerUri))
-        sub_res = pn_cse.create_subscription(containerUri, 'localhost:8080')
+        sub_res = pn_cse.create_subscription(containerUri, 'sub-00001', 'localhost:8080')
         sub_res.dump('Create Subscription')
 
         # Get the request id to register with the async response handler.
