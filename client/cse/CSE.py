@@ -423,6 +423,33 @@ class CSE:
 
         return oneM2MResponse
 
+    def delete_ae(self, to=None, ri=None):
+        """ Delete ae.
+
+        Returns:
+            OneM2MResponse: The request response.
+        """
+
+        if ri is None:
+            assert self.ae is not None
+        if to is None:
+            to = self.get_to()
+
+        # op is not required as it is implied by the function that the params will be passed to.
+        params = {
+            OneM2MPrimitive.M2M_PARAM_TO: to,
+            OneM2MPrimitive.M2M_PARAM_FROM: self.ae.ri if ri is None else ri,
+            OneM2MRequest.M2M_PARAM_RESOURCE_TYPE: OneM2MPrimitive.M2M_RESOURCE_TYPES.AE.value
+        }
+
+        # Create a request object
+        oneM2MRequest = OneM2MRequest()
+
+        # Returns a OneM2MResponse object.  Handle any response code logic here.
+        oneM2MResponse = oneM2MRequest.delete(to, params)
+
+        return oneM2MResponse
+
     def delete_resource(self, uri: str):
         """ Delete resource.
 

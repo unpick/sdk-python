@@ -1,9 +1,15 @@
 #!/usr/bin/env python
-
+#
 # Example meter service receiver, designed to work with the December 2021 version of the aos-metering-app to demonstrate
 # bidirectional, end-to-end communications.
+#
+# Pre-requisites:
+#
+#   # apt install python-is-python3 python3-pip python3-virtualenv
+#   # pip3 install aiohttp pytz requests Sphinx sphinx_rtd_theme
+#   # mkdir -m 775 /var/log/metersummary
 
-import os, sys, threading, queue, requests
+import os, sys, signal, threading, queue, socket, requests, json, pytz, configparser
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -16,6 +22,7 @@ from client.ae.AE import AE
 from client.ae.AsyncResponseListener import AsyncResponseListenerFactory
 from client.Utility import Utility
 
+from datetime import datetime
 from typing import Final
 from aiohttp import web
 
@@ -35,6 +42,9 @@ CSE_PORT: Final = 21300
 RESOURCE_NAME: Final = APP_ID[1:]
 APP_NAME: Final = 'com.grid-net.' + RESOURCE_NAME
 
+# Timezone for log rotation.  A new log file is started at midnight in this timezone.
+tz = pytz.timezone('Australia/Sydney')
+
 ############################## End of site config ##############################
 
 
@@ -42,7 +52,7 @@ APP_NAME: Final = 'com.grid-net.' + RESOURCE_NAME
 SEND_CONFIG: Final = True
 CONFIG_CONTAINER: Final = 'meterSummary'
 CONFIG_RESOURCE_NAME: Final = 'reportInterval'
-CONFIG_CONTENT: Final = 120
+CONFIG_CONTENT: Final = 3600
 
 # Details of the (usually local) listener that the IN-CSE will send notifications to.
 NOTIFICATION_PROTOCOL: Final = 'http'
@@ -51,14 +61,22 @@ NOTIFICATION_PORT: Final = 8080
 NOTIFICATION_CONTAINER: Final = 'cnt-00001'
 NOTIFICATION_SUBSCRIPTION: Final = 'sub-00001'
 NOTIFICATION_CONTAINER_MAX_AGE: Final = 900
-NOTIFICATION_LOG: Final = 'notification_log.txt'
+NOTIFICATION_LOG_DIR: Final = '/var/log/metersummary'
+NOTIFICATION_LOG_PREFIX: Final = 'notification_log_'
+NOTIFICATION_LOG_SUFFIX: Final = '.json'
+
+SETTINGS_FILE: Final = '/var/tmp/metersummary.ini'
 
 
 # Create an instance of the CSE to send requests to.
 pn_cse = CSE(CSE_HOST, CSE_PORT)
 
+# Persistent settings via INI file.
+settings = configparser.ConfigParser()
+
 # Queue used to control the configWorker thread.
 configQueue = queue.Queue()
+
 
 # Thread to asynchronously send configuration commands to MN-AEs that report in.
 def configWorker():
@@ -86,10 +104,54 @@ def configWorker():
 
             configQueue.task_done()
 
+def saveConfig(ri):
+    settings.set('DEFAULT', 'ri_persistent', ri)
+    with open(SETTINGS_FILE, 'w') as inifile:
+        settings.write(inifile)
+
+# Term signal handler to perform deregistration at shutdown.
+def handleSignalTerm(signal, frame):
+    if pn_cse.ae is not None:
+        del_res = pn_cse.delete_ae()
+        del_res.dump('Delete AE')
+
+    saveConfig('')
+
+    sys.exit(0)
+
 def main():
     try:
-        # Open the log file in append mode.
-        logFile = open(NOTIFICATION_LOG, 'a')
+        signal.signal(signal.SIGTERM, handleSignalTerm)
+
+        sys.stdout.reconfigure(line_buffering=True, encoding="utf-8")
+
+        # Confirm that there isn't already an instance running, using the HTTP listening port as a lock.
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            try:
+                bindres = sock.bind(('', NOTIFICATION_PORT))
+                if bindres is not None and bindres != 0:
+                    print('Error binding to port {}: {}'.format(NOTIFICATION_PORT, os.strerror(bindres)))
+                    sys.exit(-1)
+            except socket.error as msg:
+                print('Error binding to port {}: {}'.format(NOTIFICATION_PORT, msg))
+                sys.exit(-1)
+            sock.close()
+
+        # Open persistent setting file, or create if it doesn't exist.
+        if settings.read(SETTINGS_FILE) == []:
+            with open(SETTINGS_FILE, 'w') as fp:
+                print('[DEFAULT]\nri_persistent = ', file=fp)
+                fp.close()
+                settings.read(SETTINGS_FILE)
+
+        # If we did not cleanly exit last time, clean up the previous registration before continuing.
+        ri_persistent = settings.get('DEFAULT', 'ri_persistent')
+        if ri_persistent is not None and ri_persistent != '' and ri_persistent != "":
+            print('Deregistering AE "{}" with CSE @ {}'.format(ri_persistent, CSE_HOST))
+            to_ae = '{}://{}:{}/PN_CSE/{}'.format(pn_cse.transport_protocol, pn_cse.host, pn_cse.port, ri_persistent)
+            res = pn_cse.delete_ae(to_ae, ri_persistent)
+            res.dump('Deregister AE')
+            saveConfig('')
 
         # Create an AE instance to register with the CSE.
         NOTIFICATION_URI: Final = '{}://{}:{}'.format(NOTIFICATION_PROTOCOL, NOTIFICATION_HOST, NOTIFICATION_PORT)
@@ -113,10 +175,11 @@ def main():
 
         if res.rsc != OneM2MPrimitive.M2M_RSC_CREATED:
             print('Could not register AE\nExiting...')
-            sys.exit()
+            sys.exit(-2)
 
-        # Save the name we registered as.
+        # Save the name and RI we registered as.
         rn = res.pc["m2m:ae"]["rn"]
+        saveConfig(res.pc["m2m:ae"]["ri"])
 
         print('AE registration successful: {}'.format(rn))
 
@@ -172,16 +235,26 @@ def main():
                 # Print and log the JSON.
                 body = await req.json()
                 if body is not None:
-                    print(body)
+                    # Create a new log file every day, starting at 00:00:00 in the local timezone.
+                    day_now = datetime.now(tz).strftime('%Y-%m-%d')
+                    logFileName = NOTIFICATION_LOG_DIR + '/' + NOTIFICATION_LOG_PREFIX + day_now + NOTIFICATION_LOG_SUFFIX
+                    logFile = open(logFileName, 'a')
+                    logFile.write('{}\n'.format(body))
+                    logFile.close()
 
-                # Use the incoming report as a trigger to configure the MN-AE.
-                if SEND_CONFIG:
-                    cr = body['m2m:sgn']['nev']['rep']['m2m:cin']['cr']
-                    if (cr is not None):
-                        path = '/~/{}/{}'.format(cr, CONFIG_CONTAINER)
-                        configQueue.put(path)
+                    # Parse the content into its own object, as it may be sent with double quotes instead of single.
+                    con = json.loads(body['m2m:sgn']['nev']['rep']['m2m:cin']['con'])
+                    duration = con['te'] - con['ts']
+                    # If the MN-AE if it is reporting too frequently or infrequently, reconfigure it.
+                    if SEND_CONFIG and (duration < 0.9 * CONFIG_CONTENT or duration > 1.1 * CONFIG_CONTENT):
+                        cr = body['m2m:sgn']['nev']['rep']['m2m:cin']['cr']
+                        if (cr is not None):
+                            path = '/~/{}/{}'.format(cr, CONFIG_CONTAINER)
+                            configQueue.put(path)
 
             return res
+
+        print('IN-AE started')
 
         handlerFactory = (
             AsyncResponseListenerFactory(NOTIFICATION_HOST, NOTIFICATION_PORT)
@@ -204,6 +277,7 @@ def main():
             del_res = pn_cse.delete_ae()
             del_res.dump('Delete AE')
 
+        saveConfig('')
 
 if __name__ == '__main__':
     main()
