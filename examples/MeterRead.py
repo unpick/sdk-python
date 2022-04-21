@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 #
-# Example meter service receiver, designed to work with the December 2021 version of the aos-metering-app to demonstrate
-# bidirectional, end-to-end communications.
+# Query the metersvc on a SmartHUB directly.
 #
 # Pre-requisites:
 #
@@ -23,7 +22,7 @@ from client.ae.AsyncResponseListener import AsyncResponseListenerFactory
 from client.Utility import Utility
 
 from threading import Lock
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Final
 from aiohttp import web
 
@@ -31,7 +30,7 @@ from aiohttp import web
 ################# Configure the following for your environment #################
 
 # The AE App and credential IDs, as generated in PolicyNet via More -> System settings -> AE Registration Credentials.
-APP_ID: Final = 'Nmeterdemo'
+APP_ID: Final = 'Nmeterread'
 AE_ID: Final = 'XXXXXXXXXXXXXXXX'
 
 # Address of the IN-CSE running in your cloud environment.
@@ -43,30 +42,29 @@ CSE_PORT: Final = 21300
 RESOURCE_NAME: Final = APP_ID[1:]
 APP_NAME: Final = 'com.grid-net.' + RESOURCE_NAME
 
-# Timezone for log rotation.  A new log file is started at midnight in this timezone.
+# Timezone for log rotation and subscriptions.  A new log file is started at midnight in this timezone.
 tz = pytz.timezone('Australia/Sydney')
 
 ############################## End of site config ##############################
 
 
-# MN-AE configuration container and content instance: in this example, the report interval, in seconds.
-SEND_CONFIG: Final = True
-CONFIG_CONTAINER: Final = 'meterSummary'
+# MN-AE metersvc reading frequency content instance.
 CONFIG_RESOURCE_NAME: Final = 'reportInterval'
-CONFIG_CONTENT: Final = 3600
 
 # Details of the (usually local) listener that the IN-CSE will send notifications to.
 NOTIFICATION_PROTOCOL: Final = 'http'
 NOTIFICATION_HOST: Final = Utility.myIpAddress()
-NOTIFICATION_PORT: Final = 8080
+NOTIFICATION_PORT: Final = 8082
 NOTIFICATION_CONTAINER: Final = 'cnt-00001'
 NOTIFICATION_SUBSCRIPTION: Final = 'sub-00001'
+NOTIFICATION_INTERVAL: Final = 1
+NOTIFICATION_CONTAINER_TIME: Final = 300
 NOTIFICATION_CONTAINER_MAX_AGE: Final = 900
-NOTIFICATION_LOG_DIR: Final = '/var/log/metersummary'
+NOTIFICATION_LOG_DIR: Final = '/var/log/meterread'
 NOTIFICATION_LOG_PREFIX: Final = 'notification_log_'
 NOTIFICATION_LOG_SUFFIX: Final = '.json'
 
-SETTINGS_FILE: Final = '/var/tmp/metersummary.ini'
+SETTINGS_FILE: Final = '/var/tmp/meterread.ini'
 
 
 # Create an instance of the CSE to send requests to.
@@ -81,32 +79,6 @@ configQueue = queue.Queue()
 # Mutex to enforce atomicity on log file writes.
 logMutex = Lock()
 
-
-# Thread to asynchronously send configuration commands to MN-AEs that report in.
-def configWorker():
-    while True:
-        config_path = configQueue.get()
-        print('Creating configuration content instance {}'.format(config_path))
-        content = ContentInstance({'rn': CONFIG_RESOURCE_NAME, 'con': CONFIG_CONTENT})
-
-        assert pn_cse.ae is not None
-        to = '{}://{}:{}{}'.format(CSE_PROTOCOL, CSE_HOST, CSE_PORT, config_path)
-        params = {
-            OneM2MPrimitive.M2M_PARAM_FROM: pn_cse.ae.ri,
-            OneM2MPrimitive.M2M_PARAM_RESULT_CONTENT: 2,
-            OneM2MPrimitive.M2M_PARAM_RESOURCE_TYPE: OneM2MPrimitive.M2M_RESOURCE_TYPES.ContentInstance.value,
-        }
-
-        content_instance = content
-        oneM2MRequest = OneM2MRequest()
-
-        try:
-            response = oneM2MRequest.create(to, params, content_instance)
-            response.dump('Configuration Content Instance')
-        except requests.exceptions.HTTPError as e:
-            print("Error: Configuration content instance creation failed with error {}".format(e.response.status_code))
-
-            configQueue.task_done()
 
 def saveConfig(ri):
     settings.set('DEFAULT', 'ri_persistent', ri)
@@ -184,14 +156,9 @@ def main():
         # Save the name and RI we registered as.
         rn = res.pc["m2m:ae"]["rn"]
         saveConfig(res.pc["m2m:ae"]["ri"])
+        ri_persistent = res.pc["m2m:ae"]["ri"]
 
         print('AE registration successful: {}'.format(rn))
-
-        # Example: Discover registered nodes.
-#        print('Discovering nodes:')
-#        containers = pn_cse.discover_nodes()
-#        containers.dump('Discover Nodes')
-#        print('Retrieved {} nodes\n'.format(len(containers.pc["m2m:uril"])))
 
         # Create a new container.
         print('Creating container {}/{}'.format(rn, NOTIFICATION_CONTAINER))
@@ -200,27 +167,52 @@ def main():
         res.dump('Create Container')
 
         # Create a subscription to the container.
-        print('Subscribing to container: {}/{}'.format(rn, NOTIFICATION_CONTAINER))
-        sub_res = pn_cse.create_subscription(rn + '/' + NOTIFICATION_CONTAINER, NOTIFICATION_SUBSCRIPTION, NOTIFICATION_URI, [3],
-                                             OneM2MRequest.M2M_RCN_HIERARCHICAL_ADDRESS)
+        container_url = '~/355808100064390/metersvc/reads'
+        print('Subscribing to container: {}'.format(container_url))
+        sub_res = pn_cse.create_subscription(container_url, NOTIFICATION_SUBSCRIPTION, '/PN_CSE/' + ri_persistent, [3],
+                                             OneM2MRequest.M2M_RCN_HIERARCHICAL_ADDRESS, False)
         sub_res.dump('Create Subscription')
 
         # Get the request ID to register with the async response handler.
         # NOTE The key we actually need isn't the RI, but rather the subscription URI.
         request_id = sub_res.pc["m2m:uri"]
 
-        # Example: Retrieve the latest content instance.
-#        print('Listing content instances in container: {}'.format(rn))
-#        instance = pn_cse.retrieve_content_instance(rn)
-#        instance.dump('Instance')
+        # Create the meter reading policy.
+        container_url = '/~/355808100064390/metersvc/policies'
+        print('Creating configuration content instance {}'.format(container_url))
 
-        # Example: Create a content instance.
-#        print('Creating content instance of resource {}'.format("foobar"))
-#        content = ContentInstance({'con': 'default content'})
-#        res = pn_cse.create_content_instance("foobar", content)
-#        res.dump('Create Content Instance')
+        end_time = datetime.now(tz) + timedelta(seconds=NOTIFICATION_CONTAINER_TIME)
+        read_policy = {
+            'read': {
+                     'rtype': 'powerQuality',
+                     'tsched': {
+                                'recper': NOTIFICATION_INTERVAL,
+                                'sched': {
+                                          'start': '2020-01-01T00:00:00',
+                                          'end': end_time.strftime('%Y-%m-%dT%H:%M:%S'),
+                                         },
+                               },
+                    },
+        }
+        content = ContentInstance({'rn': CONFIG_RESOURCE_NAME, 'con': read_policy})
 
-        # Callback that will be execute whenever an HTTP request is sent to localhost:8080
+        to = '{}://{}:{}{}'.format(CSE_PROTOCOL, CSE_HOST, CSE_PORT, container_url)
+        params = {
+            OneM2MPrimitive.M2M_PARAM_FROM: pn_cse.ae.ri,
+            OneM2MPrimitive.M2M_PARAM_RESULT_CONTENT: 2,
+            OneM2MPrimitive.M2M_PARAM_RESOURCE_TYPE: OneM2MPrimitive.M2M_RESOURCE_TYPES.ContentInstance.value,
+        }
+
+        content_instance = content
+        oneM2MRequest = OneM2MRequest()
+
+        try:
+            response = oneM2MRequest.create(to, params, content_instance)
+            response.dump('Configuration Content Instance')
+        except requests.exceptions.HTTPError as e:
+            print("Error: Configuration content instance creation failed with error {}".format(e.response.status_code))
+
+        # Callback that will be execute whenever an HTTP request is sent to localhost:8082
         # and X-M2M-RI header is set.  The handler functions should process the request and
         # return the appropriate HTTP response orginator.
         # @todo AsyncResponseListener needs further refinement.  It should work with OneM2M primitives, not
@@ -244,18 +236,11 @@ def main():
                     logFileName = NOTIFICATION_LOG_DIR + '/' + NOTIFICATION_LOG_PREFIX + day_now + NOTIFICATION_LOG_SUFFIX
                     with logMutex:
                         logFile = open(logFileName, 'a')
-                        logFile.write('{}\n'.format(body))      # Newline-terminated, i.e. NDJSON
+                        json.dump(body, logFile, separators=(',', ':'))
+                        # DEBUG Append the reception time for comparison with 'rtl' and 'ct'.
+                        logFile.write('{{"received":"{}"}}\n'.format(datetime.now(tz).strftime("%Y-%m-%dT%H:%M:%S.%f")))
+#                        logFile.write('\n')                     # Newline-terminate, i.e. create valid NDJSON
                         logFile.close()
-
-                    # Parse the content into its own object, as it may be sent with double quotes instead of single.
-                    con = json.loads(body['m2m:sgn']['nev']['rep']['m2m:cin']['con'])
-                    duration = con['te'] - con['ts']
-                    # If the MN-AE if it is reporting too frequently or infrequently, reconfigure it.
-                    if SEND_CONFIG and (duration < 0.9 * CONFIG_CONTENT or duration > 1.1 * CONFIG_CONTENT):
-                        cr = body['m2m:sgn']['nev']['rep']['m2m:cin']['cr']
-                        if (cr is not None):
-                            path = '/~/{}/{}'.format(cr, CONFIG_CONTAINER)
-                            configQueue.put(path)
 
             return res
 

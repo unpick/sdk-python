@@ -1,0 +1,22 @@
+# systemd service file for MeterSummary.py
+# Place the project in /usr/local/sdk-python and copy this file into /etc/systemd/system
+
+[Unit]
+Description=SmartHUB meter summary daemon
+After=multi-user.target
+# Restart even if it keeps failing:
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=inae
+Group=daemon
+# The /usr/local/sdk-python venv won't take effect if we run MeterSummary.py
+# directly.  We must instead pass it as an argument to a Python interpreter.
+ExecStart=/usr/local/sdk-python/bin/python /usr/local/sdk-python/examples/MeterSummary.py
+WorkingDirectory=/var/log/metersummary
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=default.target

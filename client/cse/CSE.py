@@ -209,7 +209,7 @@ class CSE:
 
         return oneM2MResponse
 
-    def get_to(self, path: str=None, with_ae: bool=True):
+    def get_to(self, path: str=None, with_ae: bool=True, with_rsc: bool=True):
         """ Return the HTTP request URI.
 
         Args:
@@ -220,8 +220,10 @@ class CSE:
             to: The URI
         """
 
-        # Compose path as "/CSE-ID[/AE-ID][/path]".
-        full_path = "/" + self.rsc if self.rsc[0] != '/' else self.rsc
+        # Compose path as "[/CSE-ID][/AE-ID][/path]".
+        full_path = ""
+        if with_rsc:
+            full_path = "/" + self.rsc if self.rsc[0] != '/' else self.rsc
         if with_ae:
             full_path += "/" + self.ae.ri
         if path is not None:
@@ -253,7 +255,7 @@ class CSE:
         return oneM2MRequest.retrieve()
 
     def create_subscription(
-        self, uri: str, sub_name: str, notification_uri: str = None, event_types: List[int] = [3], result_content=None
+        self, uri: str, sub_name: str, notification_uri: str = None, event_types: List[int] = [3], result_content=None, with_rsc: bool=True
     ):
         """ Create a subscription to a resource.
 
@@ -276,13 +278,14 @@ class CSE:
 
         return self.create_resource(
             uri,
-            sub_name,
+            None,
             Subscription(json_data),
-            result_content
+            result_content,
+            with_rsc
         )
 
     def create_resource(
-        self, uri: str, name: str, content, result_content=None
+        self, uri: str, name: str, content, result_content=None, with_rsc: bool=True
     ):
         """ Create a resource.
 
@@ -295,9 +298,9 @@ class CSE:
 
         assert self.ae is not None
         if uri is not None:
-            to = self.get_to(uri, with_ae=False)
+            to = self.get_to(uri, with_ae=False, with_rsc=with_rsc)
         else:
-            to = self.get_to()
+            to = self.get_to(with_rsc=with_rsc)
         params = {
             OneM2MPrimitive.M2M_PARAM_FROM: self.ae.ri,
         }

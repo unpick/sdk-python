@@ -1,13 +1,12 @@
 #!/usr/bin/env python
 #
-# Example meter service receiver, designed to work with the December 2021 version of the aos-metering-app to demonstrate
-# bidirectional, end-to-end communications.
+# Example RenewablesHUB Modbus service receiver.
 #
 # Pre-requisites:
 #
 #   # apt install python-is-python3 python3-pip python3-virtualenv
 #   # pip3 install aiohttp==3.7.4.post0 pytz requests Sphinx sphinx_rtd_theme
-#   # mkdir -m 775 /var/log/metersummary
+#   # mkdir -m 775 /var/log/rhubmodbus
 
 import os, sys, signal, threading, queue, socket, requests, json, pytz, configparser
 
@@ -31,7 +30,7 @@ from aiohttp import web
 ################# Configure the following for your environment #################
 
 # The AE App and credential IDs, as generated in PolicyNet via More -> System settings -> AE Registration Credentials.
-APP_ID: Final = 'Nmeterdemo'
+APP_ID: Final = 'Nrhubmodbus'
 AE_ID: Final = 'XXXXXXXXXXXXXXXX'
 
 # Address of the IN-CSE running in your cloud environment.
@@ -50,23 +49,23 @@ tz = pytz.timezone('Australia/Sydney')
 
 
 # MN-AE configuration container and content instance: in this example, the report interval, in seconds.
-SEND_CONFIG: Final = True
-CONFIG_CONTAINER: Final = 'meterSummary'
+SEND_CONFIG: Final = False
+CONFIG_CONTAINER: Final = 'rhubModbus'
 CONFIG_RESOURCE_NAME: Final = 'reportInterval'
 CONFIG_CONTENT: Final = 3600
 
 # Details of the (usually local) listener that the IN-CSE will send notifications to.
 NOTIFICATION_PROTOCOL: Final = 'http'
 NOTIFICATION_HOST: Final = Utility.myIpAddress()
-NOTIFICATION_PORT: Final = 8080
+NOTIFICATION_PORT: Final = 8081
 NOTIFICATION_CONTAINER: Final = 'cnt-00001'
 NOTIFICATION_SUBSCRIPTION: Final = 'sub-00001'
 NOTIFICATION_CONTAINER_MAX_AGE: Final = 900
-NOTIFICATION_LOG_DIR: Final = '/var/log/metersummary'
+NOTIFICATION_LOG_DIR: Final = '/var/log/rhubmodbus'
 NOTIFICATION_LOG_PREFIX: Final = 'notification_log_'
 NOTIFICATION_LOG_SUFFIX: Final = '.json'
 
-SETTINGS_FILE: Final = '/var/tmp/metersummary.ini'
+SETTINGS_FILE: Final = '/var/tmp/rhubmodbus.ini'
 
 
 # Create an instance of the CSE to send requests to.
@@ -220,7 +219,7 @@ def main():
 #        res = pn_cse.create_content_instance("foobar", content)
 #        res.dump('Create Content Instance')
 
-        # Callback that will be execute whenever an HTTP request is sent to localhost:8080
+        # Callback that will be execute whenever an HTTP request is sent to localhost:8081
         # and X-M2M-RI header is set.  The handler functions should process the request and
         # return the appropriate HTTP response orginator.
         # @todo AsyncResponseListener needs further refinement.  It should work with OneM2M primitives, not
