@@ -102,16 +102,16 @@ class CSE:
 
         return oneM2MResponse
 
-    def discover_nodes(self):
+    def discover_nodes(self, lvl: int=0):
         """ Synchronously discover nodes registered with the CSE.
 
         Returns:
             list: A list of node URIs or None.
         """
 
-        return self.discover_resources(with_ae=False, ty=OneM2MPrimitive.M2M_RESOURCE_TYPES.Node.value)
+        return self.discover_resources(lvl, with_ae=False, ty=OneM2MPrimitive.M2M_RESOURCE_TYPES.Node.value)
 
-    def discover_containers(self, path: str=None, with_ae: bool=True):
+    def discover_containers(self, path: str=None, with_ae: bool=True, lvl: int=0):
         """ Synchronously discover containers registered with the CSE.
 
         Args:
@@ -122,10 +122,10 @@ class CSE:
             list: A list of container resource URIs or None.
         """
 
-        return self.discover_resources(path, with_ae, OneM2MPrimitive.M2M_RESOURCE_TYPES.Container.value)
+        return self.discover_resources(path, with_ae, lvl, OneM2MPrimitive.M2M_RESOURCE_TYPES.Container.value)
 
     def discover_resources(
-        self, path: str=None, with_ae: bool=True, ty: int=OneM2MPrimitive.M2M_RESOURCE_TYPES.Container.value
+        self, path: str=None, with_ae: bool=True, lvl: int=0, ty: int=OneM2MPrimitive.M2M_RESOURCE_TYPES.Container.value
     ):
         """ Synchronously discover resources registered with the CSE.
 
@@ -147,6 +147,9 @@ class CSE:
             OneM2MRequest.M2M_PARAM_FROM: self.ae.ri,
             OneM2MRequest.M2M_PARAM_RESOURCE_TYPE: ty
         }
+
+        if lvl > 0:
+            params[OneM2MRequest.M2M_PARAM_LEVEL] = lvl
 
         oneM2MRequest = OneM2MRequest(to, params)
 
@@ -185,7 +188,7 @@ class CSE:
 
         return oneM2MResponse
 
-    def retrieve_content_instance(self, uri: str, rcn: int=OneM2MPrimitive.M2M_RESOURCE_TYPES.ContentInstance.value):
+    def retrieve_content_instance(self, uri: str, with_ae: bool=True, rcn: int=OneM2MPrimitive.M2M_RESOURCE_TYPES.ContentInstance.value):
         """Retrieves the latest content instance of a container resource.
 
         Args:
@@ -196,7 +199,7 @@ class CSE:
         """
 
         assert self.ae is not None
-        to = self.get_to(uri)
+        to = self.get_to(uri, with_ae)
         params = {
             OneM2MPrimitive.M2M_PARAM_FROM: self.ae.ri,
             OneM2MRequest.M2M_PARAM_RESULT_CONTENT: rcn,

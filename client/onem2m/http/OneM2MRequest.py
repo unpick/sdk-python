@@ -2,7 +2,9 @@
 
 #!/usr/bin/env python
 
-import requests, aiohttp, json, random, urllib
+import requests, aiohttp, random, urllib
+
+import simplejson as json
 
 from client.onem2m.OneM2MPrimitive import OneM2MPrimitive
 from client.onem2m.OneM2MOperation import OneM2MOperation
@@ -92,6 +94,7 @@ class OneM2MRequest(OneM2MPrimitive):
     M2M_PARAM_TOKEN_IDS               = 'tids'
     M2M_PARAM_LOCAL_TOKEN_IDS         = 'ltids'
     M2M_PARAM_TOKEN_REQUEST_INDICATOR = 'tqi'
+    M2M_PARAM_LEVEL                   = 'lvl'
 
     # Request params (query string).
     QUERY_STRING_PARAMS: List[str] = [
@@ -120,6 +123,7 @@ class OneM2MRequest(OneM2MPrimitive):
         M2M_PARAM_TOKEN_IDS,
         M2M_PARAM_LOCAL_TOKEN_IDS,
         M2M_PARAM_TOKEN_REQUEST_INDICATOR,
+        M2M_PARAM_LEVEL,
         OneM2MPrimitive.M2M_PARAM_RESOURCE_NAME,
     ]
 

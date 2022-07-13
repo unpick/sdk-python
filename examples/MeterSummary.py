@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Example meter service receiver, designed to work with the December 2021 version of the aos-metering-app to demonstrate
+# Example meter service receiver, designed to work with version 1.9 (July 2022) of the aos-metering-app to demonstrate
 # bidirectional, end-to-end communications.
 #
 # Pre-requisites:
@@ -49,11 +49,10 @@ tz = pytz.timezone('Australia/Sydney')
 ############################## End of site config ##############################
 
 
-# MN-AE configuration container and content instance: in this example, the report interval, in seconds.
+# MN-AE configuration container to create a content instance in: in this example, the report interval, in seconds.
 SEND_CONFIG: Final = True
 CONFIG_CONTAINER: Final = 'meterSummary'
-CONFIG_RESOURCE_NAME: Final = 'reportInterval'
-CONFIG_CONTENT: Final = 3600
+CONFIG_REPORT_INTERVAL: Final = 3600
 
 # Details of the (usually local) listener that the IN-CSE will send notifications to.
 NOTIFICATION_PROTOCOL: Final = 'http'
@@ -82,12 +81,19 @@ configQueue = queue.Queue()
 logMutex = Lock()
 
 
+# Take a JSON object, and return a string form of the JSON object with all double quotes replaced with single quotes.
+def replaceDoubleQuotes(jsonObject):
+    return json.dumps(jsonObject).replace('"', "'")
+
 # Thread to asynchronously send configuration commands to MN-AEs that report in.
 def configWorker():
     while True:
         config_path = configQueue.get()
         print('Creating configuration content instance {}'.format(config_path))
-        content = ContentInstance({'rn': CONFIG_RESOURCE_NAME, 'con': CONFIG_CONTENT})
+
+        # The content instance is created without specifying an rn argument, resulting in an automatically assigned name.
+        con_escaped = replaceDoubleQuotes({'reportInterval': CONFIG_REPORT_INTERVAL})
+        content = ContentInstance({'con': con_escaped})
 
         assert pn_cse.ae is not None
         to = '{}://{}:{}{}'.format(CSE_PROTOCOL, CSE_HOST, CSE_PORT, config_path)
@@ -251,7 +257,7 @@ def main():
                     con = json.loads(body['m2m:sgn']['nev']['rep']['m2m:cin']['con'])
                     duration = con['te'] - con['ts']
                     # If the MN-AE if it is reporting too frequently or infrequently, reconfigure it.
-                    if SEND_CONFIG and (duration < 0.9 * CONFIG_CONTENT or duration > 1.1 * CONFIG_CONTENT):
+                    if SEND_CONFIG and (duration < 0.9 * CONFIG_REPORT_INTERVAL or duration > 1.1 * CONFIG_REPORT_INTERVAL):
                         cr = body['m2m:sgn']['nev']['rep']['m2m:cin']['cr']
                         if (cr is not None):
                             path = '/~/{}/{}'.format(cr, CONFIG_CONTAINER)
